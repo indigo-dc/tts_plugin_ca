@@ -9,7 +9,6 @@ import traceback
 import string
 import random
 
-CA_BASE="{{platform_data_dir}}/tts_ca"
 CA_SUBJECT="/C=EU/O=INDIGO/OU=TTS/CN=TTS-CA"
 CERT_SUBJECT="/C=EU/O=INDIGO/OU=TTS/CN=%s@%s"
 OPENSSL_CONF = """
@@ -43,31 +42,45 @@ authorityKeyIdentifier  =keyid, issuer
 basicConstraints        =CA:FALSE
 keyUsage                =digitalSignature, keyEncipherment
 """
-CA_ABS_BASE=os.path.abspath(os.path.expanduser(CA_BASE))
 
 ISSUER_MAPPING=""" { "https://iam-test.indigo-datacloud.eu/":"indigo-iam-test",
                      "https://accounts.google.com":"google"
                    } """
+
+VERSION="0.5.0"
+
 def list_params():
     RequestParams = []
-    ConfParams = []
-    return json.dumps({'conf_params': ConfParams, 'request_params': RequestParams})
+    ConfParams = [{'name':'ca_path', 'type':'string', 'default':'/etc/tts/ca'},
+                  {'name':'cert_valid_duration', 'type':'string', 'default':'11'}]
+    return json.dumps({'result':'ok', 'conf_params': ConfParams, 'request_params': RequestParams, 'version':VERSION})
 
-def create_cert(Subject, Issuer, NumDaysValid):
-    init_ca_if_needed()
-    Serial = read_serial()
-    return issue_certificate(Subject, Issuer, NumDaysValid, Serial)
+def create_cert(Subject, Issuer, CaPath, NumDaysValid):
+    InitCa = init_ca_if_needed(CaPath)
+    if InitCa == None:
+        Serial = read_serial(CaPath)
+        return issue_certificate(Subject, Issuer, CaPath, NumDaysValid, Serial)
+    else:
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "ca does not exist!: %s "%InitCa
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-def revoke_cert(Serial):
-    init_ca_if_needed()
-    return revoke_certificate(Serial)
+def revoke_cert(Serial, CaPath):
+    InitCa = init_ca_if_needed(CaPath)
+    if InitCa == None:
+        return revoke_certificate(Serial, CaPath)
+    else:
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "ca does not exist!: %s "%InitCa
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-def issue_certificate(Subject, Issuer, NumDaysValid, Serial):
+def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial):
     ShortIss = shorten_issuer(Issuer)
     if ShortIss == None:
-        return json.dumps({'error':'unknown issuer'})
+        LMsg = "unknown issuer '%s'"%Issuer
+        UMsg = "sorry, your provider is not supported"
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-    AbsBase = CA_ABS_BASE
     Issuer = string.rstrip(Issuer, "/")
     Password = id_generator(32)
     CertSubject = CERT_SUBJECT%(Subject, ShortIss)
@@ -84,40 +97,54 @@ def issue_certificate(Subject, Issuer, NumDaysValid, Serial):
     Cmd = "echo -n \"%s\" > %s"%(Password, PassFile)
 
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'userpass_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the userpass creation failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
     Cmd = "openssl req -newkey rsa:1024 -keyout %s -sha256 -out %s -subj \"%s\" -passout file:%s >> %s 2>&1"%(KeyFile, CsrFile, CertSubject, PassFile, LogFile)
     Log = "echo %s > %s"%(Cmd, LogFile)
     os.system(Log)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'csr_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the csr failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
     Cmd = "cp %s %s"%(ConfFile, TmpConfFile)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'conf_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the conf failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
     Cmd = "echo \"%s\" >> %s"%(AltSub, TmpConfFile)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'conf_update_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the conf update failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
     Cmd = "openssl ca -batch -config %s -days %s -policy policy_anything -extensions usr_cert -out %s -passin file:%s -infiles %s >> %s 2>&1"%(TmpConfFile, NumDaysValid, CertFile, CAPassFile, CsrFile, LogFile)
     Log = "echo %s >> %s"%(Cmd, LogFile)
     os.system(Log)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'sign_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the sign failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Cert = get_file_content(CertFile)
     CACert = get_file_content(CACertFile)
     PrivKey = get_file_content(KeyFile)
     # Cmd = "shred --remove=wipe %s %s"%(PassFile, KeyFile)
     Cmd = "rm %s %s"%(PassFile, KeyFile)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'purge_files'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the file purging failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     CertObj = {'name':'Certificate', 'type':'textfile', 'value':Cert, 'rows':30, 'cols':64}
     PrivKeyObj = {'name':'Private Key', 'type':'textfile', 'value':PrivKey, 'rows':21, 'cols':64}
     PasswdObj = {'name':'Passphrase (for Private Key)', 'type':'text', 'value':Password}
     CACertObj = {'name':'CA Certificate', 'type':'textfile', 'value':CACert, 'rows':21, 'cols':64}
     Credential = [CertObj, PrivKeyObj, PasswdObj, CACertObj]
-    return json.dumps({'credential':Credential, 'state':Serial})
+    return json.dumps({'result':'ok', 'credential':Credential, 'state':Serial})
 
 
 def shorten_issuer(Issuer):
@@ -126,8 +153,7 @@ def shorten_issuer(Issuer):
         return IssuerDict[Issuer]
     return None
 
-def revoke_certificate(Serial):
-    AbsBase = CA_ABS_BASE
+def revoke_certificate(Serial, AbsBase):
     LogFile = "%s/users/private/userlog_%s"%(AbsBase, Serial)
     CertFile = "%s/certs/usercert_%s.pem"%(AbsBase, Serial)
     ConfFile = "%s/openssl.conf"%(AbsBase)
@@ -136,25 +162,32 @@ def revoke_certificate(Serial):
     ConfigPass = "-config %s -passin file:%s"%(ConfFile, CAPassFile)
     Cmd = "openssl ca %s -revoke %s >> %s 2>&1"%(ConfigPass, CertFile, LogFile)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'revoke'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the revoke failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Cmd = "openssl ca -gencrl %s -out %s >> %s 2>&1"%(ConfigPass, CrlFile, LogFile)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'crl'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the crl failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     return json.dumps({'result':'ok'})
 
 
-def init_ca_if_needed():
-    if not os.path.isdir(CA_ABS_BASE):
-        init_ca()
+def init_ca_if_needed(AbsBase):
+    if not os.path.isdir(AbsBase):
+        return init_ca(AbsBase)
+    else:
+        return None
 
-def read_serial():
-    SerialFile = "%s/serial"%(CA_ABS_BASE)
+def read_serial(AbsBase):
+    SerialFile = "%s/serial"%(AbsBase)
     Serial = get_file_content(SerialFile).rstrip('\n')
     return Serial
 
 
-def init_ca():
-    AbsBase = CA_ABS_BASE
+def init_ca(AbsBase):
     os.mkdir("%s"%(AbsBase))
     os.mkdir("%s/certs"%(AbsBase))
     os.mkdir("%s/private"%(AbsBase))
@@ -167,27 +200,48 @@ def init_ca():
     LogFile = "%s/private/ca.log"%(AbsBase)
     Cmd = "touch %s/index.txt > /dev/null"%(AbsBase)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'touch_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the init-ca touch failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Cmd = "echo \"unique_subject = no\" > %s/index.txt.attr"%(AbsBase)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'index.attr_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the init-ca index-attr failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Cmd = "echo \"01\" > %s/serial"%(AbsBase)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'serial_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the init-ca serial failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Cmd = "echo \"01\" > %s/crl/crlnumber"%(AbsBase)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'serial_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the init-ca crl-serial failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Config = OPENSSL_CONF%(AbsBase)
     Cmd = "echo \"%s\" > %s/openssl.conf"%(Config, AbsBase)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'config_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the init-ca onpenssl.conf failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Password = id_generator(32)
     Cmd = "echo -n \"%s\" > %s/private/pass"%(Password, AbsBase)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'pass_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the init-ca pass failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     Cmd = "openssl req -x509 -newkey rsa:2048 -keyout %s/private/cakey.pem -sha256 -days 3650 -out %s/certs/cacert.pem -subj '%s' -passout file:%s/private/pass -set_serial 0 > %s 2>&1"%(AbsBase, AbsBase, CA_SUBJECT, AbsBase, LogFile)
     if os.system(Cmd) != 0:
-        return json.dumps({'error':'openssl_failed'})
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "the init-ca openssl failed: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+    return None
 
 def get_file_content(File):
     fo = open(File)
@@ -200,6 +254,7 @@ def id_generator(size=16, chars=string.ascii_uppercase + string.digits+string.as
 
 
 def main():
+    UMsg = "an internal error occured, please contact the administrator"
     try:
         Cmd = None
         if len(sys.argv) == 2:
@@ -209,44 +264,34 @@ def main():
             #general information
             Action = JObject['action']
 
-            if Action == "get_params":
+            if Action == "parameter":
                 print list_params()
             else:
 
                 State = JObject['cred_state']
                 Params = JObject['params']
+                ConfParams = JObject['conf_params']
                 UserInfo = JObject['user_info']
-                # information coming from the openid provider
-                # which information are available depends on the
-                # OpenId Connect provider
-                #
-                # userid - issuer/subject encoded into one string
-                # iss - the issuer
-                # sub - the subject
-                # name - the full name of the user
-                # email - the email of the user
-                #
-                # IAM also provides
-                # groups - a list of groups each consisting of
-                #    id - uuid of the group
-                #    name - readable name of the group
-                # organisation_name - name of the organisation, indigo_dc
-                # preferred_username - if possible create accounts with this name
                 Issuer = UserInfo['iss']
                 Subject = UserInfo['sub']
-                NumDaysValid = "11"
+                NumDaysValid = ConfParams['cert_valid_duration']
+                CaPath = ConfParams['ca_path']
+                CaAbsPath = os.path.abspath(os.path.expanduser(CaPath))
 
                 if Action == "request":
-                    print create_cert(Subject, Issuer, NumDaysValid)
+                    print create_cert(Subject, Issuer, CaAbsPath, NumDaysValid)
                 elif Action == "revoke":
-                    print revoke_cert(State)
+                    print revoke_cert(State, CaAbsPath)
                 else:
-                    print json.dumps({"error":"unknown_action", "details":Action})
+                    LMsg = "unknown action %s"%Action
+                    print json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
         else:
-            print json.dumps({"error":"no_parameter"})
+            LMsg = "no parameter given to plugin"
+            print json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
     except Exception, E:
         TraceBack = traceback.format_exc(),
-        print json.dumps({"error":"exception", "details": str(E), "trace":TraceBack})
+        LMsg = "exeption: %s - %s"%(str(E), TraceBack)
+        print json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
         pass
 
 if __name__ == "__main__":

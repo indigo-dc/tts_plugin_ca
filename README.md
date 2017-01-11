@@ -1,5 +1,5 @@
-# tts_plugin_ca
-A simple self signed certificate authority for TTS
+# watts_plugin_ca
+A simple self signed certificate authority for WaTTS
 
 *This is still in development and not yet meant for production*
 

@@ -139,10 +139,10 @@ def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial):
         LMsg = "the file purging failed: %s"%Cmd
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-    CertObj = {'name':'Certificate', 'type':'textfile', 'value':Cert, 'rows':30, 'cols':64}
-    PrivKeyObj = {'name':'Private Key', 'type':'textfile', 'value':PrivKey, 'rows':21, 'cols':64}
+    CertObj = {'name':'Certificate', 'type':'textfile', 'value':Cert, 'rows':30, 'cols':64, 'save_as':'watts_cert.pem'}
+    PrivKeyObj = {'name':'Private Key', 'type':'textfile', 'value':PrivKey, 'rows':21, 'cols':64, 'save_as':'watts_cert.key'}
     PasswdObj = {'name':'Passphrase (for Private Key)', 'type':'text', 'value':Password}
-    CACertObj = {'name':'CA Certificate', 'type':'textfile', 'value':CACert, 'rows':21, 'cols':64}
+    CACertObj = {'name':'CA Certificate', 'type':'textfile', 'value':CACert, 'rows':21, 'cols':64, 'save_as':'watts_ca.crt'}
     Credential = [CertObj, PrivKeyObj, PasswdObj, CACertObj]
     return json.dumps({'result':'ok', 'credential':Credential, 'state':Serial})
 

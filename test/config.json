@@ -1,0 +1,47 @@
+{
+	"exec_file": "plugin/x509.py",
+	"tests" : [
+		{
+			"input":
+			{
+				"action": "parameter",
+				"additional_logins": [],
+				"conf_params": {
+					"ca_path": "/tmp",
+					"cert_valid_duration": "11"
+				},
+				"cred_state": "undefined",
+				"params": {},
+				"user_info": {
+					"iss": "https://issuer.example.com",
+					"sub": "123456789"
+				},
+				"watts_version": "1.0.0"
+			},
+			"expected_output": {
+				"result": "ok"
+			}
+		},
+		{
+			"input":
+			{
+				"action": "request",
+				"additional_logins": [],
+				"conf_params": {
+					"ca_path": "/tmp",
+					"cert_valid_duration": "11"
+				},
+				"cred_state": "undefined",
+				"params": {},
+				"user_info": {
+					"iss": "https://issuer.example.com",
+					"sub": "123456789"
+				},
+				"watts_version": "1.0.0"
+			},
+			"expected_output": {
+				"result": "ok"
+			}
+		}
+	]
+}

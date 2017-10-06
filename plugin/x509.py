@@ -43,23 +43,20 @@ basicConstraints        =CA:FALSE
 keyUsage                =digitalSignature, keyEncipherment
 """
 
-ISSUER_MAPPING=""" { "https://iam-test.indigo-datacloud.eu/":"indigo-iam-test",
-                     "https://accounts.google.com":"google"
-                   } """
-
-VERSION="0.5.0"
+VERSION="1.0.0"
 
 def list_params():
     RequestParams = []
     ConfParams = [{'name':'ca_path', 'type':'string', 'default':'/etc/tts/ca'},
+                  {'name':'issuer_mapping', 'type':'string', 'default':'{}'},
                   {'name':'cert_valid_duration', 'type':'string', 'default':'11'}]
     return json.dumps({'result':'ok', 'conf_params': ConfParams, 'request_params': RequestParams, 'version':VERSION})
 
-def create_cert(Subject, Issuer, CaPath, NumDaysValid):
+def create_cert(Subject, Issuer, CaPath, NumDaysValid, IssuerMapping):
     InitCa = init_ca_if_needed(CaPath)
     if InitCa == None:
         Serial = read_serial(CaPath)
-        return issue_certificate(Subject, Issuer, CaPath, NumDaysValid, Serial)
+        return issue_certificate(Subject, Issuer, CaPath, NumDaysValid, Serial, IssuerMapping)
     else:
         UMsg = "an internal error occured, please contact the administrator"
         LMsg = "ca does not exist!: %s "%InitCa
@@ -74,8 +71,8 @@ def revoke_cert(Serial, CaPath):
         LMsg = "ca does not exist!: %s "%InitCa
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial):
-    ShortIss = shorten_issuer(Issuer)
+def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapping):
+    ShortIss = shorten_issuer(Issuer, IssuerMapping)
     if ShortIss == None:
         LMsg = "unknown issuer '%s'"%Issuer
         UMsg = "sorry, your provider is not supported"
@@ -147,8 +144,9 @@ def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial):
     return json.dumps({'result':'ok', 'credential':Credential, 'state':Serial})
 
 
-def shorten_issuer(Issuer):
-    IssuerDict = json.loads(ISSUER_MAPPING.replace("\n",""))
+def shorten_issuer(Issuer, DictJson):
+    IssuerDict = json.loads(DictJson)
+    Issuer = Issuer.rstrip('/')
     if Issuer in IssuerDict:
         return IssuerDict[Issuer]
     return None
@@ -188,7 +186,7 @@ def read_serial(AbsBase):
 
 
 def init_ca(AbsBase):
-    os.mkdir("%s"%(AbsBase))
+    os.makedirs("%s"%(AbsBase), 0700)
     os.mkdir("%s/certs"%(AbsBase))
     os.mkdir("%s/private"%(AbsBase))
     os.mkdir("%s/proxies"%(AbsBase))
@@ -275,11 +273,12 @@ def main():
                 Issuer = UserInfo['iss']
                 Subject = UserInfo['sub']
                 NumDaysValid = ConfParams['cert_valid_duration']
+                IssuerMapping = ConfParams['issuer_mapping']
                 CaPath = ConfParams['ca_path']
                 CaAbsPath = os.path.abspath(os.path.expanduser(CaPath))
 
                 if Action == "request":
-                    print create_cert(Subject, Issuer, CaAbsPath, NumDaysValid)
+                    print create_cert(Subject, Issuer, CaAbsPath, NumDaysValid, IssuerMapping)
                 elif Action == "revoke":
                     print revoke_cert(State, CaAbsPath)
                 else:

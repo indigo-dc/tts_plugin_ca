@@ -2,8 +2,8 @@
 A simple self signed certificate authority for WaTTS
 
 The plugin has three configuration options:
-- ca_path: The path of the directory where all the files will be stored needed to run the CA
-- issuer_mapping: a JSON Object containing a mapping from the Issuer url to a short name
+- ca_path: The path of the directory where all the files will be stored needed to run the CA. The directory (including sub directories) will be created at the first run and the CA will be initialized. Please *DO NOT* create the directory beforehand.
+- issuer_mapping: a JSON Object containing a mapping from the Issuer url to a short name, for more details see below.
 - cert_valid_duration: This setting determines the lifetime of a certificate in days (default: 11)
 
 ## Issuer Mapping

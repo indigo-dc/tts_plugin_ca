@@ -14,8 +14,10 @@ The CA Subject must be a valid certificate subject and must end in one CN.
 The Issuer Mapping is a *SINGLE* line in the config file, containing a JSON object with
 key/value pairs. Each key is the url of an OpenID Connect provider supported by the service
 using this plugin.
+
 The url of the provider *MUST NOT* end in a slash as they are stripped from the incomming url
 within the plugin.
+
 The value is a short name for the provider, the purpose is to limit the amount of characters
 used within the certificate subject, to keep it below the 64 character boundary.
 

@@ -1,10 +1,14 @@
 # watts_plugin_ca
 A simple self signed certificate authority for WaTTS
 
-The plugin has three configuration options:
+The plugin has four configuration options:
 - ca_path: The path of the directory where all the files will be stored needed to run the CA. The directory (including sub directories) will be created at the first run and the CA will be initialized. Please *DO NOT* create the directory beforehand.
 - issuer_mapping: a JSON Object containing a mapping from the Issuer url to a short name, for more details see below.
 - cert_valid_duration: This setting determines the lifetime of a certificate in days (default: 11)
+- ca_subject: The subject of the CA, default is '/C=EU/O=INDIGO/OU=WATTS/CN=WATTS-CA'
+
+## CA Subject
+The CA Subject must be a valid certificate subject and must end in one CN.
 
 ## Issuer Mapping
 The Issuer Mapping is a *SINGLE* line in the config file, containing a JSON object with
@@ -31,6 +35,22 @@ service.x509.authz.allow.any.sub.any = true
 service.x509.cmd = /var/lib/watts/plugins/x509.py
 # the next three lines are the parameter to the plugin
 service.x509.plugin.ca_path = /var/lib/watts/simple_ca
+service.x509.plugin.ca_subject = /C=DE/O=KIT/OU=SCC/OU=WATTS/CN=WATTS-CA
 service.x509.plugin.cert_valid_duration = 9
 service.x509.plugin.issuer_mapping = {"https://iam-test.indigo-datacloud.eu":"indigo-iam-test"}
 ```
+
+# Changelog
+## Version 1.1.0
+Introduce setting 'ca_subject'.
+
+### Upgrading from 1.0.0 to 1.1.0
+please create a file, relative to the ca_path named './private/cert_prefix'.
+The content of the file needs to be:
+```
+/C=EU/O=INDIGO/OU=TTS
+```
+The new setting 'ca_subject' can be ignored.
+
+## Version 1.0.0
+The first well documented version

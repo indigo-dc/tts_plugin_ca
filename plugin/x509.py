@@ -200,7 +200,7 @@ def init_ca(AbsBase, CASub):
     Cmd = "touch %s/index.txt > /dev/null"%(AbsBase)
     if os.system(Cmd) != 0:
         LMsg = "the init-ca touch failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "echo \"unique_subject = no\" > %s/index.txt.attr"%(AbsBase)
     if os.system(Cmd) != 0:

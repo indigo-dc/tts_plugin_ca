@@ -9,8 +9,6 @@ import traceback
 import string
 import random
 
-CA_SUBJECT="/C=EU/O=INDIGO/OU=TTS/CN=TTS-CA"
-CERT_SUBJECT="/C=EU/O=INDIGO/OU=TTS/CN=%s@%s"
 OPENSSL_CONF = """
 [ ca ]
 default_ca = CA_default
@@ -43,17 +41,18 @@ basicConstraints        =CA:FALSE
 keyUsage                =digitalSignature, keyEncipherment
 """
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 def list_params():
     RequestParams = []
     ConfParams = [{'name':'ca_path', 'type':'string', 'default':'/etc/tts/ca'},
                   {'name':'issuer_mapping', 'type':'string', 'default':'{}'},
+                  {'name':'ca_subject', 'type':'string', 'default':'/C=EU/O=INDIGO/OU=WATTS/CN=WATTS-CA'},
                   {'name':'cert_valid_duration', 'type':'string', 'default':'11'}]
     return json.dumps({'result':'ok', 'conf_params': ConfParams, 'request_params': RequestParams, 'version':VERSION})
 
-def create_cert(Subject, Issuer, CaPath, NumDaysValid, IssuerMapping):
-    InitCa = init_ca_if_needed(CaPath)
+def create_cert(Subject, Issuer, CaPath, NumDaysValid, CASub, IssuerMapping):
+    InitCa = init_ca_if_needed(CaPath, CASub)
     if InitCa == None:
         Serial = read_serial(CaPath)
         return issue_certificate(Subject, Issuer, CaPath, NumDaysValid, Serial, IssuerMapping)
@@ -62,8 +61,8 @@ def create_cert(Subject, Issuer, CaPath, NumDaysValid, IssuerMapping):
         LMsg = "ca does not exist!: %s "%InitCa
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-def revoke_cert(Serial, CaPath):
-    InitCa = init_ca_if_needed(CaPath)
+def revoke_cert(Serial, CaPath, CASub):
+    InitCa = init_ca_if_needed(CaPath, CASub)
     if InitCa == None:
         return revoke_certificate(Serial, CaPath)
     else:
@@ -72,15 +71,15 @@ def revoke_cert(Serial, CaPath):
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
 def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapping):
+    Issuer = Issuer.rstrip('/')
     ShortIss = shorten_issuer(Issuer, IssuerMapping)
     if ShortIss == None:
         LMsg = "unknown issuer '%s'"%Issuer
         UMsg = "sorry, your provider is not supported"
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-    Issuer = string.rstrip(Issuer, "/")
     Password = id_generator(32)
-    CertSubject = CERT_SUBJECT%(Subject, ShortIss)
+    CertSubject = SubjectString(Subject, ShortIss, AbsBase)
     AltSub = "subjectAltName = URI:%s/%s"%(Issuer, Subject)
     CAPassFile = "%s/private/pass"%(AbsBase)
     CACertFile = "%s/certs/cacert.pem"%(AbsBase)
@@ -143,10 +142,15 @@ def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapp
     Credential = [CertObj, PrivKeyObj, PasswdObj, CACertObj]
     return json.dumps({'result':'ok', 'credential':Credential, 'state':Serial})
 
+def SubjectString(Subject, ShortIss, AbsBase):
+    CertPrefixFile = "%s/private/cert_prefix"%AbsBase
+    CertPrefix = get_file_content(CertPrefixFile).rstrip('\n')
+    SubjectString = "%s/CN=%s@%s"%(CertPrefix, Subject, ShortIss)
+    return SubjectString
+
 
 def shorten_issuer(Issuer, DictJson):
     IssuerDict = json.loads(DictJson)
-    Issuer = Issuer.rstrip('/')
     if Issuer in IssuerDict:
         return IssuerDict[Issuer]
     return None
@@ -173,9 +177,9 @@ def revoke_certificate(Serial, AbsBase):
     return json.dumps({'result':'ok'})
 
 
-def init_ca_if_needed(AbsBase):
+def init_ca_if_needed(AbsBase, CASub):
     if not os.path.isdir(AbsBase):
-        return init_ca(AbsBase)
+        return init_ca(AbsBase, CASub)
     else:
         return None
 
@@ -185,7 +189,7 @@ def read_serial(AbsBase):
     return Serial
 
 
-def init_ca(AbsBase):
+def init_ca(AbsBase, CASub):
     os.makedirs("%s"%(AbsBase), 0700)
     os.mkdir("%s/certs"%(AbsBase))
     os.mkdir("%s/private"%(AbsBase))
@@ -234,11 +238,21 @@ def init_ca(AbsBase):
         LMsg = "the init-ca pass failed: %s"%Cmd
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
-    Cmd = "openssl req -x509 -newkey rsa:2048 -keyout %s/private/cakey.pem -sha256 -days 3650 -out %s/certs/cacert.pem -subj '%s' -passout file:%s/private/pass -set_serial 0 > %s 2>&1"%(AbsBase, AbsBase, CA_SUBJECT, AbsBase, LogFile)
+    Cmd = "openssl req -x509 -newkey rsa:2048 -keyout %s/private/cakey.pem -sha256 -days 3650 -out %s/certs/cacert.pem -subj '%s' -passout file:%s/private/pass -set_serial 0 > %s 2>&1"%(AbsBase, AbsBase, CASub, AbsBase, LogFile)
     if os.system(Cmd) != 0:
         UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca openssl failed: %s"%Cmd
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
+    CAParts = CASub.split("/")
+    del CAParts[-1]
+    CertPrefix = "/".join(CAParts)
+    Cmd = "echo \"%s\" > %s/private/cert_prefix"%(CertPrefix, AbsBase)
+    if os.system(Cmd) != 0:
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "could not store the CA subject: %s"%Cmd
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
     return None
 
 def get_file_content(File):
@@ -274,13 +288,14 @@ def main():
                 Subject = UserInfo['sub']
                 NumDaysValid = ConfParams['cert_valid_duration']
                 IssuerMapping = ConfParams['issuer_mapping']
+                CASub = ConfParams['ca_subject']
                 CaPath = ConfParams['ca_path']
                 CaAbsPath = os.path.abspath(os.path.expanduser(CaPath))
 
                 if Action == "request":
-                    print create_cert(Subject, Issuer, CaAbsPath, NumDaysValid, IssuerMapping)
+                    print create_cert(Subject, Issuer, CaAbsPath, NumDaysValid, CASub, IssuerMapping)
                 elif Action == "revoke":
-                    print revoke_cert(State, CaAbsPath)
+                    print revoke_cert(State, CaAbsPath, CASub)
                 else:
                     LMsg = "unknown action %s"%Action
                     print json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})

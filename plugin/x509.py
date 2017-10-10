@@ -52,23 +52,19 @@ def list_params():
     return json.dumps({'result':'ok', 'conf_params': ConfParams, 'request_params': RequestParams, 'version':VERSION})
 
 def create_cert(Subject, Issuer, CaPath, NumDaysValid, CASub, IssuerMapping):
-    InitCa = init_ca_if_needed(CaPath, CASub)
-    if InitCa == None:
+    InitCaError = init_ca_if_needed(CaPath, CASub)
+    if InitCaError == None:
         Serial = read_serial(CaPath)
         return issue_certificate(Subject, Issuer, CaPath, NumDaysValid, Serial, IssuerMapping)
     else:
-        UMsg = "an internal error occured, please contact the administrator"
-        LMsg = "ca does not exist/creation failed!: %s "%InitCa
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return InitCaError
 
 def revoke_cert(Serial, CaPath, CASub):
-    InitCa = init_ca_if_needed(CaPath, CASub)
-    if InitCa == None:
+    InitCaError = init_ca_if_needed(CaPath, CASub)
+    if InitCaError == None:
         return revoke_certificate(Serial, CaPath)
     else:
-        UMsg = "an internal error occured, please contact the administrator"
-        LMsg = "ca does not exist/creation failed!: %s "%InitCa
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return InitCaError
 
 def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapping):
     Issuer = Issuer.rstrip('/')
@@ -190,14 +186,25 @@ def read_serial(AbsBase):
 
 
 def init_ca(AbsBase, CASub):
-    os.makedirs("%s"%(AbsBase), 0700)
-    os.mkdir("%s/certs"%(AbsBase))
-    os.mkdir("%s/private"%(AbsBase))
-    os.mkdir("%s/proxies"%(AbsBase))
-    os.mkdir("%s/users"%(AbsBase))
-    os.mkdir("%s/users/csr"%(AbsBase))
-    os.mkdir("%s/users/private"%(AbsBase))
-    os.mkdir("%s/crl"%(AbsBase))
+    try:
+        os.makedirs("%s"%(AbsBase), 0700)
+    except Exception, E:
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "init-ca creation of directory %s failed with %s"%(AbsBase, str(E))
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+
+    try:
+        os.mkdir("%s/certs"%(AbsBase))
+        os.mkdir("%s/private"%(AbsBase))
+        os.mkdir("%s/proxies"%(AbsBase))
+        os.mkdir("%s/users"%(AbsBase))
+        os.mkdir("%s/users/csr"%(AbsBase))
+        os.mkdir("%s/users/private"%(AbsBase))
+        os.mkdir("%s/crl"%(AbsBase))
+    except Exception, E:
+        UMsg = "an internal error occured, please contact the administrator"
+        LMsg = "init-ca creation of sub-directories of %s failed with %s"%(AbsBase, str(E))
+        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
     LogFile = "%s/private/ca.log"%(AbsBase)
     Cmd = "touch %s/index.txt > /dev/null"%(AbsBase)

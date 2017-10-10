@@ -52,23 +52,19 @@ def list_params():
     return json.dumps({'result':'ok', 'conf_params': ConfParams, 'request_params': RequestParams, 'version':VERSION})
 
 def create_cert(Subject, Issuer, CaPath, NumDaysValid, CASub, IssuerMapping):
-    InitCa = init_ca_if_needed(CaPath, CASub)
-    if InitCa == None:
+    InitCaError = init_ca_if_needed(CaPath, CASub)
+    if InitCaError == None:
         Serial = read_serial(CaPath)
         return issue_certificate(Subject, Issuer, CaPath, NumDaysValid, Serial, IssuerMapping)
     else:
-        UMsg = "an internal error occured, please contact the administrator"
-        LMsg = "ca does not exist!: %s "%InitCa
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return InitCaError
 
 def revoke_cert(Serial, CaPath, CASub):
-    InitCa = init_ca_if_needed(CaPath, CASub)
-    if InitCa == None:
+    InitCaError = init_ca_if_needed(CaPath, CASub)
+    if InitCaError == None:
         return revoke_certificate(Serial, CaPath)
     else:
-        UMsg = "an internal error occured, please contact the administrator"
-        LMsg = "ca does not exist!: %s "%InitCa
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return InitCaError
 
 def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapping):
     Issuer = Issuer.rstrip('/')
@@ -93,37 +89,32 @@ def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapp
     Cmd = "echo -n \"%s\" > %s"%(Password, PassFile)
 
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the userpass creation failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "openssl req -newkey rsa:1024 -keyout %s -sha256 -out %s -subj \"%s\" -passout file:%s >> %s 2>&1"%(KeyFile, CsrFile, CertSubject, PassFile, LogFile)
     Log = "echo %s > %s"%(Cmd, LogFile)
     os.system(Log)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the csr failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "cp %s %s"%(ConfFile, TmpConfFile)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the conf failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "echo \"%s\" >> %s"%(AltSub, TmpConfFile)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the conf update failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "openssl ca -batch -config %s -days %s -policy policy_anything -extensions usr_cert -out %s -passin file:%s -infiles %s >> %s 2>&1"%(TmpConfFile, NumDaysValid, CertFile, CAPassFile, CsrFile, LogFile)
     Log = "echo %s >> %s"%(Cmd, LogFile)
     os.system(Log)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the sign failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cert = get_file_content(CertFile)
     CACert = get_file_content(CACertFile)
@@ -131,9 +122,8 @@ def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapp
     # Cmd = "shred --remove=wipe %s %s"%(PassFile, KeyFile)
     Cmd = "rm %s %s"%(PassFile, KeyFile)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the file purging failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     CertObj = {'name':'Certificate', 'type':'textfile', 'value':Cert, 'rows':30, 'cols':64, 'save_as':'watts_cert.pem'}
     PrivKeyObj = {'name':'Private Key', 'type':'textfile', 'value':PrivKey, 'rows':21, 'cols':64, 'save_as':'watts_cert.key'}
@@ -164,15 +154,13 @@ def revoke_certificate(Serial, AbsBase):
     ConfigPass = "-config %s -passin file:%s"%(ConfFile, CAPassFile)
     Cmd = "openssl ca %s -revoke %s >> %s 2>&1"%(ConfigPass, CertFile, LogFile)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the revoke failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "openssl ca -gencrl %s -out %s >> %s 2>&1"%(ConfigPass, CrlFile, LogFile)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the crl failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     return json.dumps({'result':'ok'})
 
@@ -190,68 +178,69 @@ def read_serial(AbsBase):
 
 
 def init_ca(AbsBase, CASub):
-    os.makedirs("%s"%(AbsBase), 0700)
-    os.mkdir("%s/certs"%(AbsBase))
-    os.mkdir("%s/private"%(AbsBase))
-    os.mkdir("%s/proxies"%(AbsBase))
-    os.mkdir("%s/users"%(AbsBase))
-    os.mkdir("%s/users/csr"%(AbsBase))
-    os.mkdir("%s/users/private"%(AbsBase))
-    os.mkdir("%s/crl"%(AbsBase))
+    try:
+        os.makedirs("%s"%(AbsBase), 0700)
+    except Exception, E:
+        LMsg = "init-ca creation of directory %s failed with %s"%(AbsBase, str(E))
+        return internal_error(LMsg)
+
+    try:
+        os.mkdir("%s/certs"%(AbsBase))
+        os.mkdir("%s/private"%(AbsBase))
+        os.mkdir("%s/proxies"%(AbsBase))
+        os.mkdir("%s/users"%(AbsBase))
+        os.mkdir("%s/users/csr"%(AbsBase))
+        os.mkdir("%s/users/private"%(AbsBase))
+        os.mkdir("%s/crl"%(AbsBase))
+    except Exception, E:
+        LMsg = "init-ca creation of sub-directories of %s failed with %s"%(AbsBase, str(E))
+        return internal_error(LMsg)
 
     LogFile = "%s/private/ca.log"%(AbsBase)
     Cmd = "touch %s/index.txt > /dev/null"%(AbsBase)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca touch failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "echo \"unique_subject = no\" > %s/index.txt.attr"%(AbsBase)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca index-attr failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "echo \"01\" > %s/serial"%(AbsBase)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca serial failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "echo \"01\" > %s/crl/crlnumber"%(AbsBase)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca crl-serial failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Config = OPENSSL_CONF%(AbsBase)
     Cmd = "echo \"%s\" > %s/openssl.conf"%(Config, AbsBase)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca onpenssl.conf failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Password = id_generator(32)
     Cmd = "echo -n \"%s\" > %s/private/pass"%(Password, AbsBase)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca pass failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     Cmd = "openssl req -x509 -newkey rsa:2048 -keyout %s/private/cakey.pem -sha256 -days 3650 -out %s/certs/cacert.pem -subj '%s' -passout file:%s/private/pass -set_serial 0 > %s 2>&1"%(AbsBase, AbsBase, CASub, AbsBase, LogFile)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "the init-ca openssl failed: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     CAParts = CASub.split("/")
     del CAParts[-1]
     CertPrefix = "/".join(CAParts)
     Cmd = "echo \"%s\" > %s/private/cert_prefix"%(CertPrefix, AbsBase)
     if os.system(Cmd) != 0:
-        UMsg = "an internal error occured, please contact the administrator"
         LMsg = "could not store the CA subject: %s"%Cmd
-        return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        return internal_error(LMsg)
 
     return None
 
@@ -264,9 +253,11 @@ def get_file_content(File):
 def id_generator(size=16, chars=string.ascii_uppercase + string.digits+string.ascii_lowercase):
     return ''.join(random.choice(chars) for _ in range(size))
 
+def internal_error(LMsg):
+    UMsg = "an internal error occured, please contact the administrator"
+    return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
 def main():
-    UMsg = "an internal error occured, please contact the administrator"
     try:
         Cmd = None
         if len(sys.argv) == 2:
@@ -298,14 +289,14 @@ def main():
                     print revoke_cert(State, CaAbsPath, CASub)
                 else:
                     LMsg = "unknown action %s"%Action
-                    print json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+                    print internal_error(LMsg)
         else:
             LMsg = "no parameter given to plugin"
-            print json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+            print internal_error(LMsg)
     except Exception, E:
         TraceBack = traceback.format_exc(),
         LMsg = "exeption: %s - %s"%(str(E), TraceBack)
-        print json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
+        print internal_error(LMsg)
         pass
 
 if __name__ == "__main__":

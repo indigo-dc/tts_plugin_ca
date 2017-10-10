@@ -58,7 +58,7 @@ def create_cert(Subject, Issuer, CaPath, NumDaysValid, CASub, IssuerMapping):
         return issue_certificate(Subject, Issuer, CaPath, NumDaysValid, Serial, IssuerMapping)
     else:
         UMsg = "an internal error occured, please contact the administrator"
-        LMsg = "ca does not exist!: %s "%InitCa
+        LMsg = "ca does not exist/creation failed!: %s "%InitCa
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
 def revoke_cert(Serial, CaPath, CASub):
@@ -67,7 +67,7 @@ def revoke_cert(Serial, CaPath, CASub):
         return revoke_certificate(Serial, CaPath)
     else:
         UMsg = "an internal error occured, please contact the administrator"
-        LMsg = "ca does not exist!: %s "%InitCa
+        LMsg = "ca does not exist/creation failed!: %s "%InitCa
         return json.dumps({'result':'error', 'user_msg':UMsg, 'log_msg':LMsg})
 
 def issue_certificate(Subject, Issuer, AbsBase, NumDaysValid, Serial, IssuerMapping):
